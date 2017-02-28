@@ -38,7 +38,7 @@ import org.infinispan.configuration.cache.CacheMode;
 @ApplicationScoped
 public class MyCacheManagerProvider {
 
-    private static final long ENTRY_LIFESPAN = 60 * 1000; // 60 seconds
+    // private static final long ENTRY_LIFESPAN = 60 * 1000; // 60 seconds
 
     @Inject
     private Logger log;
@@ -56,10 +56,27 @@ public class MyCacheManagerProvider {
                     // the global configuration and allows for duplicate JMX domains
                     .build(); // Builds the GlobalConfiguration object
             Configuration loc = new ConfigurationBuilder().jmxStatistics().enable() // Enable JMX statistics
+                    .persistence()
+                        .passivation(false) // save evicted entries to cache store
+                        .addSingleFileStore() // define que el almacenamiento de datos sera mediante un unico archivo
+                        // (.dat) dentro del filesystem del SO donde corre el AS
+                            .preload(true)
+                            .shared(false)
+                            .fetchPersistentState(true)
+                            .ignoreModifications(false)
+                            .purgeOnStartup(false)
+                            //.location(System.getProperty("java.io.tmpdir")+"infinispan")
+                            .location("/Users/tomas/infinispan") // Define ruta donde se almacenara el archivo de datos (.DAT)
+                            //.async().enabled(true).threadPoolSize(5)
+                            .singleton()
+                                .enabled(true)
+                                .pushStateWhenCoordinator(true)
+                                .pushStateTimeout(20000)
                     .clustering().cacheMode(CacheMode.DIST_SYNC) // Set Cache mode to DISTRIBUTED with SYNCHRONOUS replication
                     .hash().numOwners(2) // Keeps two copies of each key/value pair
-                    .expiration().lifespan(ENTRY_LIFESPAN) // Set expiration - cache entries expire after some time (given by
+                    //.expiration().lifespan(ENTRY_LIFESPAN) // Set expiration - cache entries expire after some time (given by
                     // the lifespan parameter) and are removed from the cache (cluster-wide).
+                    .indexing().enable()
                     .build();
             manager = new DefaultCacheManager(glob, loc, true);
         }

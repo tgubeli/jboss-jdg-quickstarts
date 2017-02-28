@@ -17,11 +17,13 @@
 package org.jboss.as.quickstarts.datagrid.helloworld;
 
 import java.util.logging.Logger;
+
 import javax.enterprise.context.RequestScoped;
 import javax.inject.Inject;
 import javax.inject.Named;
-import org.infinispan.manager.DefaultCacheManager;
+
 import org.infinispan.Cache;
+import org.infinispan.manager.DefaultCacheManager;
 
 /**
  * Stores entries into the cache.
@@ -44,10 +46,21 @@ public class PutController {
     private String value;
 
     private String message;
+    
 
+//    public void putSomething() {
+//        Cache<String, String> c = m.getCache();
+//        c.put(key, value);
+//        log.info("put: " + key + " " + value);
+//        this.setMessage(key + "=" + value + " added");
+//    }
+    
     public void putSomething() {
-        Cache<String, String> c = m.getCache();
-        c.put(key, value);
+        
+        CachedValue cachedValue = new CachedValue(value);
+        Cache<String, CachedValue> c = m.getCache();
+        c.put(key, cachedValue);
+        
         log.info("put: " + key + " " + value);
         this.setMessage(key + "=" + value + " added");
     }

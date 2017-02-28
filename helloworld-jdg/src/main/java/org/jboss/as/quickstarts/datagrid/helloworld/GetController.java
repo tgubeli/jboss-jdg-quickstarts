@@ -16,13 +16,15 @@
  */
 package org.jboss.as.quickstarts.datagrid.helloworld;
 
+import java.util.Set;
 import java.util.logging.Logger;
+
 import javax.enterprise.context.RequestScoped;
 import javax.inject.Inject;
 import javax.inject.Named;
-import org.infinispan.manager.DefaultCacheManager;
+
 import org.infinispan.Cache;
-import java.util.Set;
+import org.infinispan.manager.DefaultCacheManager;
 
 /**
  * Retrieves entries from the cache.
@@ -48,9 +50,14 @@ public class GetController {
 
     // Called by the get.xhtml - get button
     public void getOne() {
-        Cache<String, String> c = m.getCache();
-        message = c.get(key);
-        log.info("get: " + key + " " + message);
+//        Cache<String, String> c = m.getCache();
+//        message = c.get(key);
+//        log.info("get: " + key + " " + message);
+        
+        Application app = new Application();
+    	app.testQuery(m,key, key, message);
+        
+        
     }
 
     // Called by the get.xhtml - get all button
@@ -73,6 +80,7 @@ public class GetController {
             allKeyValues.delete(allKeyValues.length() - 2, allKeyValues.length());
             message = allKeyValues.toString();
         }
+    	
     }
 
     public String getKey() {

@@ -1,26 +1,19 @@
-helloworld-jdg: Example Using Simple Infinispan Cache and Servlets
-=========================================
-Author: Burr Sutter, Martin Gencur
+rest-endpoint: Example Using Remote Access to Cache via REST
+============================================
+Author: Martin Gencur, Tristan Tarrant
 Level: Intermediate
-Technologies: Infinispan, CDI, Servlet, JSF
-Summary: The `helloworld-jdg` quickstart shows how to use Infinispan cache in clustered mode, with expiration enabled, and access it from Servlets or JSF pages.
+Technologies: Infinispan, REST
+Summary: The `rest-endpoint` quickstart demonstrates how to use Infinispan cache remotely using the REST protocol.
 Target Product: JDG
-Product Versions: JDG 7.x, EAP 7.x
+Product Versions: JDG 7.x
 Source: <https://github.com/infinispan/jdg-quickstart>
 
 What is it?
 -----------
 
-The `helloworld-jdg` is a basic example that shows how to store and retrieve data to/from the cache. Users can access the cache
-either from a servlet or from a JSF page through request scoped beans.
+JBoss Data Grid uses a RESTful service, eliminating the need for tightly coupled client libraries and bindings. The REST API requires a REST client or custom code to understand and create REST calls. JBoss Data Grid's sole requirement is a HTTP client library. For Java, the Apache HTTP Commons Client is recommended. Alternatively, the java.net API can be used.
 
-Infinispan is configured in clustered distributed mode with synchronous replication. Entries have their lifespan (expiration)
-and are removed from the cache after 60 seconds since last update.
-
-The `helloworld-jdg` example works in _Library mode_. In this mode, the application and the data grid are running in the same
-JVM. All libraries (JAR files) are bundled with the application and deployed to Red Hat JBoss Enterprise Application Platform.
-The library mode enables fastest (local) access to the entries stored on the same node as the application instance, but also 
-enables access to data stored in remote nodes (JVMs) that comprise the embedded distributed cluster.
+This quickstart demonstrates how to connect remotely to Red Hat JBoss Data Grid (JDG) to store, retrieve, and remove data from cache using the HTTP Commons Client RESTful client APIs. This simple Football Manager console application allows you to add and remove teams, add players to or remove players from teams, or print a list of the current teams and players using the REST interface based connector.
 
 
 System requirements
@@ -28,7 +21,7 @@ System requirements
 
 All you need to build this project is Java 8.0 (Java SDK 1.8) or better, Maven 3.0 or better.
 
-The application this project produces is designed to be run on Red Hat JBoss Enterprise Application Platform (EAP) 7.0 or later.
+The application this project produces is designed to be run on Red Hat JBoss Data Grid 7.x
 
  
 Configure Maven
@@ -37,114 +30,138 @@ Configure Maven
 If you have not yet done so, you must [Configure Maven](https://github.com/jboss-developer/jboss-developer-shared-resources/blob/master/guides/CONFIGURE_MAVEN.md#configure-maven-to-build-and-deploy-the-quickstarts) before testing the quickstarts.
 
 
-Start first instance of EAP
----------------------------
+Configure JDG
+-------------
 
-1. Open a command line and navigate to the root of the EAP directory.
+1. Obtain JDG server distribution on Red Hat's Customer Portal at https://access.redhat.com/jbossnetwork/restricted/listSoftware.html
+
+2. Install a JDBC driver into JDG (since JDG includes H2 by default, this step may be skipped for the scope of this example). More information can be found in the DataSource Management chapter of the Administration and Configuration Guide for JBoss Enterprise Application Platform on the Customer Portal at <https://access.redhat.com/site/documentation/JBoss_Enterprise_Application_Platform/> . _NOTE: JDG does not support deploying applications so one cannot install it as a deployment._
+
+3. This Quickstart uses JDBC to store the cache. To permit this, it's necessary to alter JDG configuration file (`$JDG_HOME/standalone/configuration/standalone.xml`) to contain the following definitions:
+   
+* Datasource subsystem definition:
+
+    
+        <subsystem xmlns="urn:jboss:domain:datasources:4.0">
+            <!-- Define this Datasource with jndi name  java:jboss/datasources/ExampleDS -->
+            <datasources>
+                <datasource jndi-name="java:jboss/datasources/ExampleDS" pool-name="ExampleDS" enabled="true" use-java-context="true">
+                    <!-- The connection URL uses H2 Database Engine with in-memory database called test -->
+                    <connection-url>jdbc:h2:mem:test;DB_CLOSE_DELAY=-1</connection-url>
+                    <!-- JDBC driver name -->
+                    <driver>h2</driver>
+                    <!-- Credentials -->
+                    <security>
+                        <user-name>sa</user-name>
+                        <password>sa</password>
+                    </security>
+                </datasource>
+                <!-- Define the JDBC driver called 'h2' -->
+                <drivers>
+                    <driver name="h2" module="com.h2database.h2">
+                        <xa-datasource-class>org.h2.jdbcx.JdbcDataSource</xa-datasource-class>
+                    </driver>
+                </drivers>
+            </datasources>
+        </subsystem>
+
+* Infinispan subsystem definition:
+
+        <subsystem xmlns="urn:infinispan:server:core:8.0" default-cache-container="local">
+            <cache-container name="local" default-cache="default">
+                <local-cache name="default" start="EAGER">
+                    <locking acquire-timeout="30000" concurrency-level="1000" striping="false"/>
+                </local-cache>
+                <local-cache name="memcachedCache" start="EAGER">
+                    <locking acquire-timeout="30000" concurrency-level="1000" striping="false"/>
+                </local-cache>
+                <local-cache name="namedCache" start="EAGER"/>
+                
+                <!-- ADD a local cache called 'teams' -->
+               
+                <local-cache 
+                    name="teams"
+                    start="EAGER"
+                    batching="false">
+                    
+                    <!-- Define the locking isolation of this cache -->
+                    <locking
+                        acquire-timeout="20000"
+                        concurrency-level="500"
+                        striping="false" />
+                        
+                    <!-- Define the JdbcBinaryCacheStores to point to the ExampleDS previously defined -->
+                    <string-keyed-jdbc-store datasource="java:jboss/datasources/ExampleDS" passivation="false" preload="false" purge="false">
+
+                        <!-- specifies information about database table/column names and data types -->
+                        <string-keyed-table prefix="JDG">
+                            <id-column name="id" type="VARCHAR"/>
+                            <data-column name="datum" type="BINARY"/>
+                            <timestamp-column name="version" type="BIGINT"/>
+                        </string-keyed-table>
+                    </string-keyed-jdbc-store>
+                </local-cache>
+                <!-- End of local cache called 'teams' definition -->
+
+            </cache-container>
+            <cache-container name="security"/>
+        </subsystem>
+
+4. Disable REST endpoint security: by default the standalone.xml configuration protects the REST endpoint with BASIC authentication. Since this quickstart cannot perform authentication, the REST connector should be configured without it:
+
+        <rest-connector socket-binding="rest" cache-container="local"/>
+
+Start JDG
+---------
+
+1. Open a command line and navigate to the root of the JDG directory.
 2. The following shows the command line to start the server with the web profile:
 
-        For Linux:   $JBOSS_HOME/bin/standalone.sh
-        For Windows: %JBOSS_HOME%\bin\standalone.bat
+        For Linux:   $JDG_HOME/bin/standalone.sh
+        For Windows: %JDG_HOME%\bin\standalone.bat
 
-Start second instance of EAP
-----------------------------
 
-1. Make a second copy of EAP
-2. Open a command line and navigate to the root of the second EAP directory.
-3. Start the server with pre-configured port offset so that the server can run on the same host
+Build and Run the Quickstart
+-------------------------
 
-        For Linux:   $JBOSS_HOME2/bin/standalone.sh -Djboss.socket.binding.port-offset=100
-        For Windows: %JBOSS_HOME2%\bin\standalone.bat -Djboss.socket.binding.port-offset=100
+_NOTE: The following build command assumes you have configured your Maven user settings. If you have not, you must include Maven setting arguments on the command line. See [Build and Deploy the Quickstarts](../../README.md#build-and-deploy-the-quickstarts) for complete instructions and additional options._
 
+1. Make sure you have started the JDG as described above.
+2. Open a command line and navigate to the root directory of this quickstart.
+3. Type this command to build and deploy the archive:
+
+        mvn clean package 
+                
+4. This will create a file at `target/rest-endpoint-quickstart.jar` 
+
+5. Run the example application in its directory:
+
+        mvn exec:java
  
-Build and Deploy the Quickstart
--------------------------------
 
-_NOTE: The following build command assumes you have configured your Maven user settings. 
+Using the application
+---------------------
+Basic usage scenarios can look like this (keyboard shortcuts will be shown to you upon start):
 
-1. Make sure you have started both instances of EAP as described above.
-2. Open a command line and navigate to the root directory of this quickstart.
-3. Type this command to build and deploy the archive to the first server:
-
-        mvn clean package wildfly:deploy
-
-4. This will deploy `target/jboss-helloworld-jdg.war` to the first running instance of the server.
-5. Type this command to build and deploy the archive to the second server (running on different ports):
-
-        mvn clean package wildfly:deploy -Dwildfly.port=10090
-
-6. This will deploy `target/jboss-helloworld-jdg.war` to the second running instance of the server.
-
-
-Access the application 
-----------------------
-
-The application will be running at the following URLs:
-
-   <http://localhost:8080/jboss-helloworld-jdg>  (first server instance)
-   <http://localhost:8180/jboss-helloworld-jdg>  (second server instance)
-
-You can test replication of entries in the following way:
-
-1. Access first server at <http://localhost:8080/jboss-helloworld-jdg> and insert key "foo" with value "bar"
-2. Access second server at <http://localhost:8180/jboss-helloworld-jdg> and do the following:
-   * Click on "Get Some"
-   * Get the value for key "foo"
-   * Click "Put Some More"
-   * Insert key "mykey" with value "myvalue"
-3. Access the first server at <http://localhost:8080/jboss-helloworld-jdg> and do the following:
-   * Click on "Get Some"
-   * Get all mappings by clicking on "Get All"
-4. All data entered on each server was replicated to the other server
-
-NOTE: Entries expire and simply disappear after 60 seconds from last update.
-
-To access predefined servlets and directly store/retrieve a key in the cache, access the following URLs:
-
-<http://localhost:8080/jboss-helloworld-jdg/TestServletPut>
-<http://localhost:8180/jboss-helloworld-jdg/TestServletGet>  (note the different port 8180)
-
-
-Undeploy the Archive
---------------------
-
-1. Make sure you have started the EAP as described above.
-2. Open a command line and navigate to the root directory of this quickstart.
-3. When you are finished testing, type this command to undeploy the archive from both running servers:
-
-        mvn wildfly:undeploy
-        mvn wildfly:undeploy -Dwildfly.port=10090
-
-
-Run the Quickstart in JBoss Developer Studio or Eclipse
--------------------------------------------------------
-You can also start the server and deploy the quickstarts from Eclipse using JBoss tools. For more information,
-see [Use JBoss Developer Studio or Eclipse to Run the Quickstarts](../README.md#use-jboss-developer-studio-or-eclipse-to-run-the-quickstarts)
+        at  -  add a team
+        ap  -  add a player to a team
+        rt  -  remove a team
+        rp  -  remove a player from a team
+        p   -  print all teams and players
+        q   -  quit
+        
+Type `q` one more time to exit the application.    
 
 
 Debug the Application
----------------------
-
-If you want to debug the source code or look at the Javadocs of any library in the project, run either of the following
-commands to pull them into your local repository. The IDE should then detect them.
-
-        mvn dependency:sources
-        mvn dependency:resolve -Dclassifier=javadoc
-
-
-Test the Application
 ------------------------------------
 
-If you want to test the application, there are simple Arquillian Selenium tests prepared.
-To run these tests on EAP:
+If you want to debug the source code or look at the Javadocs of any library in the project, run either of the following commands to pull them into your local repository. The IDE should then detect them.
 
-1. Stop EAP (if you have some running)
-2. Open a command line and navigate to the root directory of this quickstart.
-3. Build the quickstart using:
+    mvn dependency:sources
+    mvn dependency:resolve -Dclassifier=javadoc
 
-        mvn clean package
 
-4. Type this command to run the tests (server paths can be the same):
 
-        mvn test -Puitests-clustered -DeapHome=/path/to/first/server -DeapHome2=/path/to/second/server
+
 
